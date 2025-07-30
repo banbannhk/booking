@@ -1,48 +1,61 @@
 package com.example.booking.controller;
 
-import com.example.booking.dto.CountryDTO;
-import com.example.booking.entity.Country;
+import com.example.booking.dto.UserDTO;
+import com.example.booking.dto.request.ChangePasswordRequest;
+import com.example.booking.dto.request.UpdateProfileRequest;
+import com.example.booking.dto.response.ErrorResponse;
 import com.example.booking.entity.User;
-import com.example.booking.service.UserService;
-import io.swagger.v3.oas.annotations.security.SecurityRequirement;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.example.booking.service.impl.AuthServiceImpl;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/users")
-@SecurityRequirement(name = "bearerAuth")
+@PreAuthorize("isAuthenticated()")
 public class UserController {
 
-    @Autowired
-    private UserService userService;
+    private final AuthServiceImpl authService;
 
-    @PostMapping("/country")
-    public ResponseEntity<Country> addRegister(@RequestBody CountryDTO countryDTO) {
-        return ResponseEntity.ok(userService.registerCountry(countryDTO));
+    public UserController(AuthServiceImpl authService) {
+        this.authService = authService;
     }
 
-    @GetMapping("/profile/{id}")
-    public ResponseEntity<User> getProfile(@PathVariable Long id) {
-        return ResponseEntity.ok(userService.getProfile(id));
+    @GetMapping("/profile")
+    public ResponseEntity<?> getUserProfile(@AuthenticationPrincipal UserDetails userDetails) {
+        UserDTO user = authService.getUserByEmail(userDetails.getUsername());
+        return ResponseEntity.ok(user);
     }
 
-    @PostMapping("/change-password")
-    public ResponseEntity<Void> changePassword(@RequestParam Long userId,
-                                               @RequestParam String oldPassword,
-                                               @RequestParam String newPassword) {
-        userService.changePassword(userId, oldPassword, newPassword);
-        return ResponseEntity.ok().build();
+    @PutMapping("/profile")
+    public ResponseEntity<?> updateProfile(@AuthenticationPrincipal UserDetails userDetails,
+                                              @Valid @RequestBody UpdateProfileRequest request) {
+        try {
+            UserDTO updatedUser = authService.updateUserProfile(userDetails.getUsername(), request);
+            return ResponseEntity.ok(updatedUser);
+        } catch (com.example.booking.exception.ResourceNotFoundException e) {
+            return new ResponseEntity<>(new ErrorResponse("error", e.getMessage()), HttpStatus.NOT_FOUND); // User not found (shouldn't happen if authenticated)
+        } catch (Exception e) {
+            return new ResponseEntity<>(new ErrorResponse("error", e.getMessage()), HttpStatus.INTERNAL_SERVER_ERROR); // General error
+        }
     }
 
-    @PostMapping("/reset-password")
-    public ResponseEntity<Void> resetPassword(@RequestParam String email) {
-        userService.resetPassword(email);
-        return ResponseEntity.ok().build();
-    }
-
-    @GetMapping("/verify-email")
-    public ResponseEntity<Boolean> verifyEmail(@RequestParam String token) {
-        return ResponseEntity.ok(userService.verifyEmail(token));
+    @PutMapping("/change-password")
+    public ResponseEntity<String> changePassword(@AuthenticationPrincipal UserDetails userDetails,
+                                                 @Valid @RequestBody ChangePasswordRequest request) {
+        try {
+            authService.changePassword(userDetails.getUsername(), request.getOldPassword(), request.getNewPassword());
+            return ResponseEntity.ok("Password changed successfully.");
+        } catch (IllegalArgumentException e) {
+            return new ResponseEntity<>(e.getMessage(), HttpStatus.BAD_REQUEST);
+        } catch (com.example.booking.exception.ResourceNotFoundException e) {
+            return new ResponseEntity<>(e.getMessage(), HttpStatus.NOT_FOUND);
+        } catch (Exception e) {
+            return new ResponseEntity<>("Failed to change password: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
+        }
     }
 }

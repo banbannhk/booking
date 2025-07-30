@@ -5,8 +5,6 @@ import java.time.LocalDateTime;
 
 import lombok.*;
 
-import java.time.LocalDateTime;
-
 @Entity
 @Table(name = "class_schedules")
 @Getter

@@ -14,12 +14,15 @@ public class Booking {
     private Long id;
 
     @ManyToOne
+    @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
     @ManyToOne
+    @JoinColumn(name = "class_schedule_id", nullable = false)
     private ClassSchedule classSchedule;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_package_id", nullable = false)
     private UserPackage userPackage;
 
     @Enumerated(EnumType.STRING)

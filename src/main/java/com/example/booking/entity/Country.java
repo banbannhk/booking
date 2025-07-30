@@ -2,7 +2,6 @@ package com.example.booking.entity;
 
 import jakarta.persistence.*;
 import lombok.Data;
-import lombok.Getter;
 
 @Entity
 @Table(name = "countries")
@@ -13,6 +12,6 @@ public class Country {
     private Long id;
 
     private String name;
-    private String code; // Optional ISO code like "US"
+    private String code;
 }
 

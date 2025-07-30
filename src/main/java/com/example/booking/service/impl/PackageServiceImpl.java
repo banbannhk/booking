@@ -1,65 +1,154 @@
 package com.example.booking.service.impl;
 
+import com.example.booking.dto.PackageDTO;
+import com.example.booking.dto.request.PurchasePackageRequest;
+import com.example.booking.dto.UserPackageDTO;
+import com.example.booking.entity.Country;
 import com.example.booking.entity.Package;
+import com.example.booking.entity.PackageStatus;
 import com.example.booking.entity.User;
+import com.example.booking.entity.UserPackage;
+import com.example.booking.exception.BadRequestException;
+import com.example.booking.exception.ResourceNotFoundException;
 import com.example.booking.repository.PackageRepository;
-import com.example.booking.repository.UserRepository;
+import com.example.booking.repository.UserPackageRepository;
+import com.example.booking.service.CountryService;
 import com.example.booking.service.PackageService;
-import jakarta.transaction.Transactional;
-import org.redisson.api.RLock;
-import org.redisson.api.RedissonClient;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.example.booking.service.PaymentService;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
+import java.time.LocalDate;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 @Service
-@Transactional
 public class PackageServiceImpl implements PackageService {
 
-    @Autowired
-    private PackageRepository packageRepository;
+    private final PackageRepository packageRepository;
+    private final UserPackageRepository userPackageRepository;
+    private final CountryService countryService;
+    private final PaymentService paymentService;
 
-    @Autowired
-    private UserRepository userRepository;
+    public PackageServiceImpl(PackageRepository packageRepository,
+                              UserPackageRepository userPackageRepository,
+                              CountryService countryService,
+                              PaymentService paymentService) {
+        this.packageRepository = packageRepository;
+        this.userPackageRepository = userPackageRepository;
+        this.countryService = countryService;
+        this.paymentService = paymentService;
+    }
 
-    @Autowired
-    private RedissonClient redissonClient;
+
+    @Cacheable(value = "packages", key = "#id")
+    public Package findById(Long id) {
+        System.out.println("Fetching Package by ID from DB: " + id);
+        return packageRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Package not found with ID: " + id));
+    }
+
 
     @Override
-    public List<Package> getAvailablePackages(Long country) {
-        return packageRepository.findByCountryId(country);
+    @Cacheable(value = "packages", key = "#countryId + ':byCountry'")
+    public List<PackageDTO> getAllAvailablePackages(Long countryId) {
+        Country country = countryService.getCountryById(countryId);
+        List<Package> packages = packageRepository.findByCountry(country);
+        return packages.stream().map(this::mapToPackageDTO).collect(Collectors.toList());
     }
 
     @Override
-    public List<Package> getUserPackages(Long userId) {
-        User user = userRepository.findById(userId).orElseThrow(() -> new RuntimeException("User not found"));
-        return new ArrayList<>();
-        //        return packageRepository.findByUserId(user.getId()); // Adjust depending on your package-user mapping
+    @Cacheable(value = "packages", key = "'allPackages'")
+    public List<PackageDTO> getAllPackages() {
+        return packageRepository.findAll().stream()
+                .map(this::mapToPackageDTO)
+                .collect(Collectors.toList());
     }
 
     @Override
-    public Package buyPackage(Long userId, Long packageId) {
-        String lockKey = "buy_package_lock_" + userId;
-        RLock lock = redissonClient.getLock(lockKey);
-        try {
-            if (lock.tryLock(10, 5, TimeUnit.SECONDS)) {
-                // Logic to add package to user and deduct payment (mocked)
-                // Save package purchase info, update user credits, etc.
-                Package pkg = packageRepository.findById(packageId).orElseThrow(() -> new RuntimeException("Package not found"));
-                // Assume you create a UserPackage or similar entity to track ownership
+    @Transactional
+    public UserPackageDTO purchasePackage(User user, PurchasePackageRequest request) {
+        Package pack = findById(request.getPackageId());
 
-                // Mock payment success
-                return pkg;
-            } else {
-                throw new RuntimeException("Could not acquire lock for package purchase");
-            }
-        } catch (InterruptedException e) {
-            throw new RuntimeException("Lock interrupted");
-        } finally {
-            if (lock.isHeldByCurrentThread()) lock.unlock();
+        // 2. Process Payment (Mocked)
+        boolean paymentSuccess = paymentService.chargePayment(user.getId().toString(), pack.getPrice(), "USD"); // Or get currency from country
+
+        if (!paymentSuccess) {
+            throw new BadRequestException("Payment failed for package purchase.");
         }
+
+        // 3. Create UserPackage
+        UserPackage userPackage = UserPackage.builder()
+                .user(user)
+                .pack(pack)
+                .remainingCredits(pack.getCredits())
+                .expiryDate(LocalDate.now().plusDays(pack.getExpiryDays()))
+                .status(PackageStatus.ACTIVE)
+                .build();
+
+        userPackage = userPackageRepository.save(userPackage);
+        return mapToUserPackageDTO(userPackage);
+    }
+
+    @Override
+    public List<UserPackageDTO> getUserPackages(User user) {
+        updateExpiredUserPackagesStatusForUser(user);
+        List<UserPackage> userPackages = userPackageRepository.findByUser(user);
+        return userPackages.stream()
+                .map(this::mapToUserPackageDTO)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional
+    private void updateExpiredUserPackagesStatusForUser(User user) {
+        List<UserPackage> userActivePackages = userPackageRepository
+                .findByUserAndStatus(user, PackageStatus.ACTIVE);
+
+        userActivePackages.forEach(userPackage -> {
+            if (userPackage.getExpiryDate().isBefore(LocalDate.now())) {
+                userPackage.setStatus(PackageStatus.EXPIRED);
+                userPackageRepository.save(userPackage);
+            }
+        });
+    }
+
+
+    private PackageDTO mapToPackageDTO(Package pack) {
+        return PackageDTO.builder()
+                .id(pack.getId())
+                .name(pack.getName())
+                .credits(pack.getCredits())
+                .price(pack.getPrice())
+                .expiryDays(pack.getExpiryDays())
+                .createdAt(pack.getCreatedAt())
+                .countryId(pack.getCountry() != null ? pack.getCountry().getId() : null)
+                .countryName(pack.getCountry() != null ? pack.getCountry().getName() : null)
+                .countryCode(pack.getCountry() != null ? pack.getCountry().getCode() : null)
+                .build();
+    }
+
+    private UserPackageDTO mapToUserPackageDTO(UserPackage userPackage) {
+        return UserPackageDTO.builder()
+                .id(userPackage.getId())
+                .userId(userPackage.getUser().getId())
+                .packageId(userPackage.getPack().getId())
+                .packageName(userPackage.getPack().getName())
+                .remainingCredits(userPackage.getRemainingCredits())
+                .expiryDate(userPackage.getExpiryDate())
+                .status(determineUserPackageStatus(userPackage))
+                .countryId(userPackage.getPack().getCountry().getId())
+                .countryName(userPackage.getPack().getCountry().getName())// Dynamic status determination
+                .build();
+    }
+
+    private PackageStatus determineUserPackageStatus(UserPackage userPackage) {
+        if (userPackage.getExpiryDate().isBefore(LocalDate.now())) {
+            return PackageStatus.EXPIRED;
+        }
+        if (userPackage.getRemainingCredits() <= 0) {
+            return PackageStatus.USED_UP;
+        }
+        return PackageStatus.ACTIVE;
     }
 }

@@ -7,19 +7,20 @@ import io.jsonwebtoken.security.Keys;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
-import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.function.Function;
+import java.util.concurrent.TimeUnit;
 
 @Component
 public class JwtUtil {
 
-    // Must be at least 32 bytes (256 bits)
-    private final String SECRET_KEY_STRING = "Z3NwZXJjLWh5ZHJhLXNlY3JldC1rZXktc2FmZQ==";
+    private final String SECRET_KEY_STRING = "Z3NwZXJjLWh5ZHJhLXNlY3EB2JldC1rZXkKB35TUBERtc2FmZQ==";
+
+    // Define the token validity in milliseconds (1 hour)
+    private static final long TOKEN_VALIDITY = TimeUnit.HOURS.toMillis(1); // 1 hour in milliseconds
 
     private SecretKey getSigningKey() {
-        // Convert base64-encoded string to key
-        return Keys.hmacShaKeyFor(SECRET_KEY_STRING.getBytes(StandardCharsets.UTF_8));
+        return Keys.hmacShaKeyFor(java.util.Base64.getDecoder().decode(SECRET_KEY_STRING));
     }
 
     public String extractUsername(String token) {
@@ -51,7 +52,8 @@ public class JwtUtil {
         return Jwts.builder()
                 .setSubject(username)
                 .setIssuedAt(new Date(System.currentTimeMillis()))
-                .setExpiration(new Date(System.currentTimeMillis() + 1000 * 60 * 60 * 10)) // 10 hours
+                // Set the expiration time to 1 hour from now
+                .setExpiration(new Date(System.currentTimeMillis() + TOKEN_VALIDITY))
                 .signWith(getSigningKey(), SignatureAlgorithm.HS256)
                 .compact();
     }
