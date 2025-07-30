@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7 # Changed from redis:latest to redis:7
+    container_name: my-redis-server
+    ports:
+      - "6379:6379"
+    # Optional: Persist Redis data
+    volumes:
+      - redis_data:/data
+    networks:
+      - app-network
+
+  mysql:
+    image: mysql:8.0
+    container_name: my-mysql-server
+    environment:
+      MYSQL_ROOT_PASSWORD: mySuperSecureRootPassword 
+      MYSQL_DATABASE: Booking            
+      MYSQL_USER: banbann   
+      MYSQL_PASSWORD: banbann 
+    ports:
+      - "3306:3306"
+    # Persist MySQL data
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - app-network
+    # Ensure MySQL starts after Redis (though not strictly necessary for these services)
+    depends_on:
+      - redis
+
+# Define volumes for data persistence
+volumes:
+  redis_data:
+  mysql_data:
+
+# Define a custom network for services to communicate
+networks:
+  app-network:
+    driver: bridge
