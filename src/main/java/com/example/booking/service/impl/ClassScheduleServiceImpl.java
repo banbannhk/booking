@@ -5,6 +5,7 @@ import com.example.booking.entity.BookingStatus;
 import com.example.booking.entity.ClassSchedule;
 import com.example.booking.entity.Country;
 import com.example.booking.entity.User;
+import com.example.booking.exception.InternalServerErrorException;
 import com.example.booking.repository.BookingRepository;
 import com.example.booking.repository.ClassScheduleRepository;
 import com.example.booking.repository.WaitlistRepository;
@@ -41,20 +42,41 @@ public class ClassScheduleServiceImpl implements ClassScheduleService {
 
     @Override
     public List<ClassScheduleDTO> getAvailableClassSchedules(Long countryId, User currentUser) {
-        Country country = countryService.getCountryById(countryId);
-        List<ClassSchedule> schedules = classScheduleRepository.findByClassInfoCountryIdOrderByStartTimeAsc(country.getId());
 
-        return schedules.stream()
-                .filter(schedule -> schedule.getStartTime().isAfter(LocalDateTime.now()))
-                .map(schedule -> mapToClassScheduleDTO(schedule, currentUser))
-                .collect(Collectors.toList());
+      try{
+            Country country = countryService.getCountryById(countryId);
+            List<ClassSchedule> schedules = classScheduleRepository.findByClassInfoCountryIdOrderByStartTimeAsc(country.getId());
+
+            return schedules.stream()
+                    .filter(schedule -> schedule.getStartTime().isAfter(LocalDateTime.now()))
+                    .map(schedule -> mapToClassScheduleDTO(schedule, currentUser))
+                    .collect(Collectors.toList());
+
+        } catch (Exception e) {
+            if (e instanceof ResourceNotFoundException) {
+                throw e;
+            }
+
+            System.err.println("Error retrieving class schedules for country " + countryId + ": " + e.getMessage());
+            throw new InternalServerErrorException("Failed to retrieve class schedules");
+        }
     }
 
     @Override
     public ClassScheduleDTO getClassScheduleById(Long id, User currentUser) {
-        ClassSchedule schedule = classScheduleRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Class Schedule not found with ID: " + id));
-        return mapToClassScheduleDTO(schedule, currentUser);
+
+        try{
+
+            ClassSchedule schedule = classScheduleRepository.findById(id)
+                    .orElseThrow(() -> new ResourceNotFoundException("Class Schedule not found with ID: " + id));
+            return mapToClassScheduleDTO(schedule, currentUser);
+
+        } catch (Exception e) {
+            if (e instanceof ResourceNotFoundException) {
+                throw e;
+            }
+            throw new InternalServerErrorException("Failed to retrieve class schedule");
+        }
     }
 
     private ClassScheduleDTO mapToClassScheduleDTO(ClassSchedule schedule, User currentUser) {

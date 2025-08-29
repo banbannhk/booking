@@ -9,6 +9,8 @@ import com.example.booking.entity.PackageStatus;
 import com.example.booking.entity.User;
 import com.example.booking.entity.UserPackage;
 import com.example.booking.exception.BadRequestException;
+import com.example.booking.exception.BusinessRuleViolationException;
+import com.example.booking.exception.InternalServerErrorException;
 import com.example.booking.exception.ResourceNotFoundException;
 import com.example.booking.repository.PackageRepository;
 import com.example.booking.repository.UserPackageRepository;
@@ -53,64 +55,99 @@ public class PackageServiceImpl implements PackageService {
     @Override
     @Cacheable(value = "packages", key = "#countryId + ':byCountry'")
     public List<PackageDTO> getAllAvailablePackages(Long countryId) {
-        Country country = countryService.getCountryById(countryId);
-        List<Package> packages = packageRepository.findByCountry(country);
-        return packages.stream().map(this::mapToPackageDTO).collect(Collectors.toList());
+        try{
+            Country country = countryService.getCountryById(countryId);
+            List<Package> packages = packageRepository.findByCountry(country);
+            return packages.stream().map(this::mapToPackageDTO).collect(Collectors.toList());
+        } catch (Exception e) {
+            if (e instanceof ResourceNotFoundException) {
+                throw e;
+            }
+            throw new InternalServerErrorException("Failed to retrieve all available List");
+        }
     }
 
     @Override
     @Cacheable(value = "packages", key = "'allPackages'")
     public List<PackageDTO> getAllPackages() {
-        return packageRepository.findAll().stream()
-                .map(this::mapToPackageDTO)
-                .collect(Collectors.toList());
+        try{
+            return packageRepository.findAll().stream()
+                    .map(this::mapToPackageDTO)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            if (e instanceof ResourceNotFoundException) {
+                throw e;
+            }
+            throw new InternalServerErrorException("Failed to retrieve all package List");
+        }
     }
 
     @Override
     @Transactional
     public UserPackageDTO purchasePackage(User user, PurchasePackageRequest request) {
-        Package pack = findById(request.getPackageId());
+        try{
+            Package pack = findById(request.getPackageId());
 
-        // 2. Process Payment (Mocked)
-        boolean paymentSuccess = paymentService.chargePayment(user.getId().toString(), pack.getPrice(), "USD"); // Or get currency from country
+            // 2. Process Payment (Mocked)
+            boolean paymentSuccess = paymentService.chargePayment(user.getId().toString(), pack.getPrice(), "USD"); // Or get currency from country
 
-        if (!paymentSuccess) {
-            throw new BadRequestException("Payment failed for package purchase.");
+            if (!paymentSuccess) {
+                throw new BusinessRuleViolationException("PAYMENT_FIALED", "Payment failed for package purchase.");
+            }
+
+            // 3. Create UserPackage
+            UserPackage userPackage = UserPackage.builder()
+                    .user(user)
+                    .pack(pack)
+                    .remainingCredits(pack.getCredits())
+                    .expiryDate(LocalDate.now().plusDays(pack.getExpiryDays()))
+                    .status(PackageStatus.ACTIVE)
+                    .build();
+
+            userPackage = userPackageRepository.save(userPackage);
+            return mapToUserPackageDTO(userPackage);
+        } catch (Exception e) {
+            if (e instanceof ResourceNotFoundException) {
+                throw e;
+            }
+            throw new InternalServerErrorException("Failed to purchasePackage");
         }
-
-        // 3. Create UserPackage
-        UserPackage userPackage = UserPackage.builder()
-                .user(user)
-                .pack(pack)
-                .remainingCredits(pack.getCredits())
-                .expiryDate(LocalDate.now().plusDays(pack.getExpiryDays()))
-                .status(PackageStatus.ACTIVE)
-                .build();
-
-        userPackage = userPackageRepository.save(userPackage);
-        return mapToUserPackageDTO(userPackage);
     }
 
     @Override
     public List<UserPackageDTO> getUserPackages(User user) {
-        updateExpiredUserPackagesStatusForUser(user);
-        List<UserPackage> userPackages = userPackageRepository.findByUser(user);
-        return userPackages.stream()
-                .map(this::mapToUserPackageDTO)
-                .collect(Collectors.toList());
+        try{
+            updateExpiredUserPackagesStatusForUser(user);
+            List<UserPackage> userPackages = userPackageRepository.findByUser(user);
+            return userPackages.stream()
+                    .map(this::mapToUserPackageDTO)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            if (e instanceof ResourceNotFoundException) {
+                throw e;
+            }
+            throw new InternalServerErrorException("Failed to getUserPackages");
+        }
     }
 
     @Transactional
     private void updateExpiredUserPackagesStatusForUser(User user) {
-        List<UserPackage> userActivePackages = userPackageRepository
-                .findByUserAndStatus(user, PackageStatus.ACTIVE);
+        try{
+            List<UserPackage> userActivePackages = userPackageRepository
+                    .findByUserAndStatus(user, PackageStatus.ACTIVE);
 
-        userActivePackages.forEach(userPackage -> {
-            if (userPackage.getExpiryDate().isBefore(LocalDate.now())) {
-                userPackage.setStatus(PackageStatus.EXPIRED);
-                userPackageRepository.save(userPackage);
+            userActivePackages.forEach(userPackage -> {
+                if (userPackage.getExpiryDate().isBefore(LocalDate.now())) {
+                    userPackage.setStatus(PackageStatus.EXPIRED);
+                    userPackageRepository.save(userPackage);
+                }
+            });
+        } catch (Exception e) {
+            if (e instanceof ResourceNotFoundException) {
+                throw e;
             }
-        });
+            throw new InternalServerErrorException("Failed to updateExpiredUserPackagesStatusForUser");
+        }
     }
 
 

@@ -3,9 +3,12 @@ package com.example.booking.exception;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ResponseStatus;
 
-@ResponseStatus(HttpStatus.BAD_REQUEST)
-public class BadRequestException extends RuntimeException {
+
+// ===== CLIENT ERROR EXCEPTIONS (4xx) =====
+
+// 400 Bad Request - Invalid input format/syntax
+public class BadRequestException extends BaseException {
     public BadRequestException(String message) {
-        super(message);
+        super("BAD_REQUEST", message);
     }
 }

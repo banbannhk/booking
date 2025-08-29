@@ -34,28 +34,14 @@ public class UserController {
     @PutMapping("/profile")
     public ResponseEntity<?> updateProfile(@AuthenticationPrincipal UserDetails userDetails,
                                               @Valid @RequestBody UpdateProfileRequest request) {
-        try {
-            UserDTO updatedUser = authService.updateUserProfile(userDetails.getUsername(), request);
-            return ResponseEntity.ok(updatedUser);
-        } catch (com.example.booking.exception.ResourceNotFoundException e) {
-            return new ResponseEntity<>(new ErrorResponse("error", e.getMessage()), HttpStatus.NOT_FOUND); // User not found (shouldn't happen if authenticated)
-        } catch (Exception e) {
-            return new ResponseEntity<>(new ErrorResponse("error", e.getMessage()), HttpStatus.INTERNAL_SERVER_ERROR); // General error
-        }
+        UserDTO updatedUser = authService.updateUserProfile(userDetails.getUsername(), request);
+        return ResponseEntity.ok(updatedUser);
     }
 
     @PutMapping("/change-password")
     public ResponseEntity<String> changePassword(@AuthenticationPrincipal UserDetails userDetails,
                                                  @Valid @RequestBody ChangePasswordRequest request) {
-        try {
-            authService.changePassword(userDetails.getUsername(), request.getOldPassword(), request.getNewPassword());
-            return ResponseEntity.ok("Password changed successfully.");
-        } catch (IllegalArgumentException e) {
-            return new ResponseEntity<>(e.getMessage(), HttpStatus.BAD_REQUEST);
-        } catch (com.example.booking.exception.ResourceNotFoundException e) {
-            return new ResponseEntity<>(e.getMessage(), HttpStatus.NOT_FOUND);
-        } catch (Exception e) {
-            return new ResponseEntity<>("Failed to change password: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
-        }
+        authService.changePassword(userDetails.getUsername(), request.getOldPassword(), request.getNewPassword());
+        return ResponseEntity.ok("Password changed successfully.");
     }
 }

@@ -43,14 +43,8 @@ public class PackageController {
     public ResponseEntity<?> purchasePackage(@AuthenticationPrincipal UserDetails userDetails,
                                                           @Valid @RequestBody PurchasePackageRequest request) {
         User user = authService.getUserProfile(userDetails.getUsername()); // Get the full User entity
-        try {
-            UserPackageDTO purchasedPackage = packageService.purchasePackage(user, request);
-            return new ResponseEntity<>(purchasedPackage, HttpStatus.CREATED);
-        } catch (com.example.booking.exception.ResourceNotFoundException | com.example.booking.exception.BadRequestException e) {
-            return new ResponseEntity<>(new ErrorResponse("error", e.getMessage()), HttpStatus.BAD_REQUEST);
-        } catch (Exception e) {
-            return new ResponseEntity<>(new ErrorResponse("error", e.getMessage()), HttpStatus.INTERNAL_SERVER_ERROR);
-        }
+        UserPackageDTO purchasedPackage = packageService.purchasePackage(user, request);
+        return new ResponseEntity<>(purchasedPackage, HttpStatus.CREATED);
     }
 
     @GetMapping("/my-packages")

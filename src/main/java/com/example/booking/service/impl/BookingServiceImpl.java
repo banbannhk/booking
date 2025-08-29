@@ -5,8 +5,7 @@ import com.example.booking.dto.request.BookingRequest;
 import com.example.booking.dto.request.CheckInRequest;
 import com.example.booking.dto.WaitlistDTO;
 import com.example.booking.entity.*;
-import com.example.booking.exception.BadRequestException;
-import com.example.booking.exception.ResourceNotFoundException;
+import com.example.booking.exception.*;
 import com.example.booking.repository.BookingRepository;
 import com.example.booking.repository.ClassScheduleRepository;
 import com.example.booking.repository.UserPackageRepository;
@@ -55,7 +54,7 @@ public class BookingServiceImpl implements BookingService {
         try {
             boolean locked = lock.tryLock(10, 30, TimeUnit.SECONDS); // Wait 10s, lease 30s
             if (!locked) {
-                throw new BadRequestException("Could not acquire lock for class booking. Please try again.");
+                throw new ConflictException("Could not acquire lock for class booking. Please try again.");
             }
 
             // --- ALL CRITICAL LOGIC GOES INSIDE THE LOCK ---
@@ -64,22 +63,22 @@ public class BookingServiceImpl implements BookingService {
 
             // 1. Check if class is in the past
             if (classSchedule.getStartTime().isBefore(LocalDateTime.now())) {
-                throw new BadRequestException("Cannot book a class that has already started or ended.");
+                throw new BusinessRuleViolationException("CLASS_ALREADY_STARTED", "Cannot book a class that has already started or ended.");
             }
 
             // 2. Check for overlapping bookings
             List<Booking> overlappingBookings = bookingRepository.findOverlappingBookingsForUser(
                     user, classSchedule.getStartTime(), classSchedule.getEndTime());
             if (!overlappingBookings.isEmpty()) {
-                throw new BadRequestException("You already have an overlapping class booked.");
+                throw new ConflictException("You already have an overlapping class booked.");
             }
 
             // 3. Check if user already booked or on waitlist for this class
             if (bookingRepository.existsByUserAndClassScheduleAndStatus(user, classSchedule, BookingStatus.BOOKED)) {
-                throw new BadRequestException("You have already booked this class.");
+                throw new ConflictException("You have already booked this class.");
             }
             if (waitlistRepository.existsByUserAndClassSchedule(user, classSchedule)) {
-                throw new BadRequestException("You are already on the waitlist for this class.");
+                throw new ConflictException("You are already on the waitlist for this class.");
             }
 
             // 4. Check available slots using Redis
@@ -91,7 +90,7 @@ public class BookingServiceImpl implements BookingService {
             UserPackage userPackage = findApplicableUserPackage(user, classSchedule.getRequiredCredits(), classSchedule.getClassInfo().getCountry());
             if (userPackage == null) {
                 redisService.incrementAvailableSlots(classSchedule.getId()); // Crucial to revert Redis
-                throw new BadRequestException("Not enough credits or no active package available for this class's country.");
+                throw new BusinessRuleViolationException("INSUFFICIENT_CREDITS","Not enough credits or no active package available for this class's country.");
             }
 
 
@@ -138,7 +137,20 @@ public class BookingServiceImpl implements BookingService {
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException("Booking operation interrupted.", e);
+            throw new InternalServerErrorException("Booking operation interrupted.");
+        } catch (Exception e) {
+            // Log the exception for debugging
+            System.err.println("Unexpected error during booking: " + e.getMessage());
+            e.printStackTrace();
+
+            // If it's already one of our custom exceptions, rethrow it
+            if (e instanceof ResourceNotFoundException || e instanceof BusinessRuleViolationException ||
+                    e instanceof ConflictException || e instanceof InternalServerErrorException) {
+                throw e;
+            }
+
+            // Otherwise, wrap in InternalServerErrorException
+            throw new InternalServerErrorException("An unexpected error occurred during booking");
         } finally {
             if (lock.isLocked() && lock.isHeldByCurrentThread()) {
                 lock.unlock();
@@ -157,16 +169,16 @@ public class BookingServiceImpl implements BookingService {
         try {
             boolean locked = lock.tryLock(10, 30, TimeUnit.SECONDS);
             if (!locked) {
-                throw new BadRequestException("Could not acquire lock for class cancellation. Please try again.");
+                throw new ConflictException("Could not acquire lock for class cancellation. Please try again.");
             }
 
             // --- ALL CRITICAL LOGIC GOES INSIDE THE LOCK ---
             if (!booking.getUser().getId().equals(user.getId())) {
-                throw new BadRequestException("You are not authorized to cancel this booking.");
+                throw new ForbiddenException("You are not authorized to cancel this booking.");
             }
 
             if (booking.getStatus() != BookingStatus.BOOKED) {
-                throw new BadRequestException("Cannot cancel a booking that is not in BOOKED status.");
+                throw new BusinessRuleViolationException("INVALID_BOOKING_STATUS", "Cannot cancel a booking that is not in BOOKED status.");
             }
 
             boolean refundEligible = classSchedule.getStartTime().minusHours(4).isAfter(LocalDateTime.now());
@@ -201,8 +213,19 @@ public class BookingServiceImpl implements BookingService {
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException("Cancellation operation interrupted.", e);
-        } finally {
+            throw new InternalServerErrorException("Cancellation operation interrupted.");
+        } catch (Exception e) {
+            System.err.println("Unexpected error during cancellation: " + e.getMessage());
+            e.printStackTrace();
+
+            if (e instanceof ResourceNotFoundException || e instanceof BusinessRuleViolationException ||
+                    e instanceof ConflictException || e instanceof ForbiddenException ||
+                    e instanceof InternalServerErrorException) {
+                throw e;
+            }
+
+            throw new InternalServerErrorException("An unexpected error occurred during cancellation");
+        }finally {
             if (lock.isLocked() && lock.isHeldByCurrentThread()) {
                 lock.unlock();
             }
@@ -212,14 +235,24 @@ public class BookingServiceImpl implements BookingService {
 
     @Override
     public List<BookingDTO> getMyBookings(User user) {
-        List<Booking> bookings = bookingRepository.findByUserAndStatus(user, BookingStatus.BOOKED);
-        return bookings.stream().map(this::mapToBookingDTO).collect(Collectors.toList());
+        try {
+            List<Booking> bookings = bookingRepository.findByUserAndStatus(user, BookingStatus.BOOKED);
+            return bookings.stream().map(this::mapToBookingDTO).collect(Collectors.toList());
+        } catch (Exception e) {
+            System.err.println("Error retrieving bookings for user " + user.getId() + ": " + e.getMessage());
+            throw new InternalServerErrorException("Failed to retrieve your bookings");
+        }
     }
 
     @Override
     public List<WaitlistDTO> getMyWaitlists(User user) {
-        List<Waitlist> waitlists = waitlistRepository.findByUser(user);
-        return waitlists.stream().map(this::mapToWaitlistDTO).collect(Collectors.toList());
+        try {
+            List<Waitlist> waitlists = waitlistRepository.findByUser(user);
+            return waitlists.stream().map(this::mapToWaitlistDTO).collect(Collectors.toList());
+        } catch (Exception e) {
+            System.err.println("Error retrieving waitlists for user " + user.getId() + ": " + e.getMessage());
+            throw new InternalServerErrorException("Failed to retrieve your waitlists");
+        }
     }
 
     @Override
@@ -229,24 +262,30 @@ public class BookingServiceImpl implements BookingService {
                 .orElseThrow(() -> new ResourceNotFoundException("Booking not found with ID: " + request.getBookingId()));
 
         if (!booking.getUser().getId().equals(user.getId())) {
-            throw new BadRequestException("You are not authorized to check in for this booking.");
+            throw new ForbiddenException("You are not authorized to check in for this booking.");
         }
 
         if (booking.getStatus() != BookingStatus.BOOKED) {
-            throw new BadRequestException("Cannot check in for a booking that is not in BOOKED status.");
+            throw new BusinessRuleViolationException("INVALID_CHECKIN_STATUS",
+                    "Cannot check in for a booking that is not in BOOKED status.");
         }
 
         ClassSchedule classSchedule = booking.getClassSchedule();
         LocalDateTime now = LocalDateTime.now();
 
         if (now.isBefore(classSchedule.getStartTime().minusMinutes(30)) || now.isAfter(classSchedule.getEndTime())) {
-            throw new BadRequestException("Check-in is only allowed 30 minutes before the class starts until the class ends.");
+            throw new BusinessRuleViolationException("INVALID_CHECKIN_TIME",
+                    "Check-in is only allowed 30 minutes before the class starts until the class ends.");
         }
 
-        booking.setStatus(BookingStatus.ATTENDED);
-        bookingRepository.save(booking);
-
-        return "Successfully checked in for class: " + classSchedule.getClassInfo().getName();
+        try {
+            booking.setStatus(BookingStatus.ATTENDED);
+            bookingRepository.save(booking);
+            return "Successfully checked in for class: " + classSchedule.getClassInfo().getName();
+        } catch (Exception e) {
+            System.err.println("Error during check-in for booking " + request.getBookingId() + ": " + e.getMessage());
+            throw new InternalServerErrorException("Failed to check in for the class");
+        }
     }
 
 

@@ -12,7 +12,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/class-schedules")
-public class ClassScheduleController {
+public class ClassScheduleController extends Thread{
 
     private final ClassScheduleService classScheduleService;
     private final AuthService authService;

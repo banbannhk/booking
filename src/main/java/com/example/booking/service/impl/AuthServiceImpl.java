@@ -6,9 +6,9 @@ import com.example.booking.dto.request.RegisterRequest;
 import com.example.booking.dto.request.UpdateProfileRequest;
 import com.example.booking.dto.response.LoginResponse;
 import com.example.booking.entity.User;
+import com.example.booking.exception.BadRequestException;
 import com.example.booking.repository.UserRepository;
 import com.example.booking.exception.ResourceNotFoundException;
-import com.example.booking.exception.UserAlreadyExistsException;
 import com.example.booking.service.AuthService;
 import com.example.booking.util.JwtUtil; // Import your JwtUtil
 import org.springframework.security.authentication.AuthenticationManager;
@@ -43,7 +43,7 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     public User registerUser(RegisterRequest registerRequest) {
         if (userRepository.existsByEmail(registerRequest.getEmail())) {
-            throw new UserAlreadyExistsException("User with email " + registerRequest.getEmail() + " already exists.");
+            throw new BadRequestException("User with email " + registerRequest.getEmail() + " already exists.");
         }
 
         User user = new User();

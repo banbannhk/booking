@@ -4,7 +4,6 @@ import com.example.booking.dto.BookingDTO;
 import com.example.booking.dto.request.BookingRequest;
 import com.example.booking.dto.request.CheckInRequest;
 import com.example.booking.dto.WaitlistDTO;
-import com.example.booking.dto.response.ErrorResponse;
 import com.example.booking.entity.User;
 import com.example.booking.service.AuthService;
 import com.example.booking.service.BookingService;
@@ -35,32 +34,16 @@ public class BookingController {
     public ResponseEntity<?> bookClass(@AuthenticationPrincipal UserDetails userDetails,
                                                 @Valid @RequestBody BookingRequest request) {
         User user = authService.getUserProfile(userDetails.getUsername());
-        try {
-            BookingDTO booking = bookingService.bookClass(user, request);
-            return new ResponseEntity<>(booking, HttpStatus.CREATED);
-        } catch (com.example.booking.exception.BadRequestException e) {
-            return new ResponseEntity<>(new ErrorResponse("error", e.getMessage()), HttpStatus.BAD_REQUEST);
-        } catch (com.example.booking.exception.ResourceNotFoundException e) {
-            return new ResponseEntity<>(new ErrorResponse("error", e.getMessage()), HttpStatus.NOT_FOUND);
-        } catch (Exception e) {
-            return new ResponseEntity<>(new ErrorResponse("error", e.getMessage()), HttpStatus.INTERNAL_SERVER_ERROR);
-        }
+        BookingDTO booking = bookingService.bookClass(user, request);
+        return new ResponseEntity<>(booking, HttpStatus.CREATED);
     }
 
     @PutMapping("/cancel/{bookingId}")
     public ResponseEntity<?> cancelBooking(@AuthenticationPrincipal UserDetails userDetails,
                                                     @PathVariable Long bookingId) {
         User user = authService.getUserProfile(userDetails.getUsername());
-        try {
-            BookingDTO canceledBooking = bookingService.cancelBooking(user, bookingId);
-            return ResponseEntity.ok(canceledBooking);
-        } catch (com.example.booking.exception.BadRequestException e) {
-            return new ResponseEntity<>(new ErrorResponse("error", e.getMessage()), HttpStatus.BAD_REQUEST);
-        } catch (com.example.booking.exception.ResourceNotFoundException e) {
-            return new ResponseEntity<>(new ErrorResponse("error", e.getMessage()), HttpStatus.NOT_FOUND);
-        } catch (Exception e) {
-            return new ResponseEntity<>(new ErrorResponse("error", e.getMessage()), HttpStatus.INTERNAL_SERVER_ERROR);
-        }
+        BookingDTO canceledBooking = bookingService.cancelBooking(user, bookingId);
+        return ResponseEntity.ok(canceledBooking);
     }
 
 
@@ -82,15 +65,7 @@ public class BookingController {
     public ResponseEntity<?> checkIn(@AuthenticationPrincipal UserDetails userDetails,
                                           @Valid @RequestBody CheckInRequest request) {
         User user = authService.getUserProfile(userDetails.getUsername());
-        try {
-            String result = bookingService.checkIn(user, request);
-            return ResponseEntity.ok(result);
-        } catch (com.example.booking.exception.BadRequestException e) {
-            return new ResponseEntity<>(new ErrorResponse("error", e.getMessage()), HttpStatus.BAD_REQUEST);
-        } catch (com.example.booking.exception.ResourceNotFoundException e) {
-            return new ResponseEntity<>(new ErrorResponse("error", e.getMessage()), HttpStatus.NOT_FOUND);
-        } catch (Exception e) {
-            return new ResponseEntity<>(new ErrorResponse("error", e.getMessage()), HttpStatus.INTERNAL_SERVER_ERROR);
-        }
+        String result = bookingService.checkIn(user, request);
+        return ResponseEntity.ok(result);
     }
 }

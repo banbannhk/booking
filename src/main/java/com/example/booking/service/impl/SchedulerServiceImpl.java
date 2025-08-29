@@ -1,5 +1,7 @@
 package com.example.booking.service.impl;
 
+import com.example.booking.exception.InternalServerErrorException;
+import com.example.booking.exception.ResourceNotFoundException;
 import com.example.booking.service.BookingService;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
@@ -39,6 +41,12 @@ public class SchedulerServiceImpl {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt(); // Restore interrupt status
             System.err.println("Scheduled task interrupted: " + e.getMessage());
+            throw new InternalServerErrorException("Failed to updateExpiredUserPackagesStatusForUser");
+        } catch (Exception e) {
+            if (e instanceof ResourceNotFoundException) {
+                throw e;
+            }
+            throw new InternalServerErrorException("Failed to updateExpiredUserPackagesStatusForUser");
         } finally {
             // Ensure the lock is released only if it's currently locked AND held by the current thread
             if (lock.isLocked() && lock.isHeldByCurrentThread()) {
