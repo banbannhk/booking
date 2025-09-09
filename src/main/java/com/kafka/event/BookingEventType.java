@@ -1,0 +1,12 @@
+package com.kafka.event;
+
+public enum BookingEventType {
+    CLASS_BOOKED,
+    CLASS_CANCELLED,
+    WAITLIST_JOINED,
+    WAITLIST_PROMOTED,
+    WAITLIST_REFUNDED,
+    PACKAGE_PURCHASED,
+    CLASS_CHECKED_IN,
+    BOOKING_REMINDER
+}

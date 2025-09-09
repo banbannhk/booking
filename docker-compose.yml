@@ -2,11 +2,10 @@ version: '3.8'
 
 services:
   redis:
-    image: redis:7 # Changed from redis:latest to redis:7
+    image: redis:7
     container_name: my-redis-server
     ports:
       - "6379:6379"
-    # Optional: Persist Redis data
     volumes:
       - redis_data:/data
     networks:
@@ -16,27 +15,121 @@ services:
     image: mysql:8.0
     container_name: my-mysql-server
     environment:
-      MYSQL_ROOT_PASSWORD: mySuperSecureRootPassword 
-      MYSQL_DATABASE: Booking            
-      MYSQL_USER: banbann   
-      MYSQL_PASSWORD: banbann 
+      MYSQL_ROOT_PASSWORD: mySuperSecureRootPassword
+      MYSQL_DATABASE: Booking
+      MYSQL_USER: banbann
+      MYSQL_PASSWORD: banbann
     ports:
-      - "3306:3306"
-    # Persist MySQL data
+      - "3307:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     networks:
       - app-network
-    # Ensure MySQL starts after Redis (though not strictly necessary for these services)
     depends_on:
       - redis
 
-# Define volumes for data persistence
+  mongodb:
+    image: mongo:4.2
+    container_name: mongodb
+    restart: always
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - booking-network
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch-oss:7.10.2
+    container_name: elasticsearch
+    environment:
+      - http.host=0.0.0.0
+      - transport.host=localhost
+      - network.host=0.0.0.0
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - discovery.type=single-node
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    restart: always
+    networks:
+      - booking-network
+
+  graylog:
+    image: graylog/graylog:4.3
+    container_name: graylog
+    environment:
+      - GRAYLOG_PASSWORD_SECRET=forpasswordencryptionandaddmoresecurityforthebookingsystem
+      - GRAYLOG_ROOT_PASSWORD_SHA2=8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918
+      - GRAYLOG_HTTP_EXTERNAL_URI=http://127.0.0.1:9000/
+      - GRAYLOG_MONGODB_URI=mongodb://mongodb:27017/graylog
+    depends_on:
+      - mongodb
+      - elasticsearch
+    ports:
+      - "9000:9000"    # Web UI
+      - "12201:12201"  # GELF TCP
+      - "1514:1514"    # Syslog TCP
+    volumes:
+      - graylog_data:/usr/share/graylog/data
+    restart: always
+    networks:
+      - booking-network
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    hostname: zookeeper
+    container_name: booking_zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - booking-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    hostname: kafka
+    container_name: booking_kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    networks:
+      - booking-network
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: booking_kafka_ui
+    depends_on:
+      - kafka
+    ports:
+      - "8081:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    networks:
+      - booking-network
+
 volumes:
   redis_data:
   mysql_data:
+  mongo_data:
+  es_data:
+  graylog_data:
 
-# Define a custom network for services to communicate
 networks:
   app-network:
+    driver: bridge
+  booking-network:
     driver: bridge

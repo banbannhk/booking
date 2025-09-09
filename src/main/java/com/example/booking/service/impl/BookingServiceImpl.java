@@ -11,8 +11,10 @@ import com.example.booking.repository.ClassScheduleRepository;
 import com.example.booking.repository.UserPackageRepository;
 import com.example.booking.repository.WaitlistRepository;
 import com.example.booking.service.BookingService;
+import com.kafka.service.BookingEventPublisher;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,19 +33,22 @@ public class BookingServiceImpl implements BookingService {
     private final WaitlistRepository waitlistRepository;
     private final RedisServiceImpl redisService;
     private final RedissonClient redissonClient;
+    private final BookingEventPublisher eventPublisher;
 
     public BookingServiceImpl(BookingRepository bookingRepository,
                               ClassScheduleRepository classScheduleRepository,
                               UserPackageRepository userPackageRepository,
                               WaitlistRepository waitlistRepository,
                               RedisServiceImpl redisService,
-                              RedissonClient redissonClient) {
+                              RedissonClient redissonClient,
+                              BookingEventPublisher eventPublisher) {
         this.bookingRepository = bookingRepository;
         this.classScheduleRepository = classScheduleRepository;
         this.userPackageRepository = userPackageRepository;
         this.waitlistRepository = waitlistRepository;
         this.redisService = redisService;
         this.redissonClient = redissonClient;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -133,6 +138,21 @@ public class BookingServiceImpl implements BookingService {
             booking.setBookedAt(LocalDateTime.now());
 
             Booking savedBooking = bookingRepository.save(booking);
+
+            // After successful booking, publish event
+            if (savedBooking.getId() > 0) {
+                eventPublisher.publishClassBooked(
+                        user.getId(),
+                        user.getEmail(),
+                        user.getName(),
+                        booking.getId(),
+                        classSchedule.getClassInfo().getId(),
+                        classSchedule.getClassInfo().getName(),
+                        classSchedule.getStartTime(),
+                        1
+                );
+            }
+
             return mapToBookingDTO(savedBooking);
 
         } catch (InterruptedException e) {
@@ -208,6 +228,20 @@ public class BookingServiceImpl implements BookingService {
             redisService.incrementAvailableSlots(classSchedule.getId());
 
             processWaitlistAfterCancellation(classSchedule.getId());
+
+            // After cancel booking, publish event
+            if (savedBooking.getId() > 0) {
+                eventPublisher.publishClassBooked(
+                        user.getId(),
+                        user.getEmail(),
+                        user.getName(),
+                        booking.getId(),
+                        classSchedule.getClassInfo().getId(),
+                        classSchedule.getClassInfo().getName(),
+                        classSchedule.getStartTime(),
+                        1
+                );
+            }
 
             return mapToBookingDTO(savedBooking);
 
